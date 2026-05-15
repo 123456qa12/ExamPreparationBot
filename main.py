@@ -1,22 +1,43 @@
 import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto
+
+NUMBER_OF_TASKS = 27
+EXAM_SCORE_CONVERSION = [0, 7, 14, 20, 27, 34, 40, 43, 46, 48, 51, 54, 56, 59, 62, 64, 67, 70, 72, 75, 78, 80, 83, 85, 88, 90, 93, 95, 98, 100]
 
 with open('token.txt', 'r') as f:
     token = f.read()
 
-
 bot=telebot.TeleBot(token)
 
 correct_answers = ["26", "xzy", "801", "14", "19", "17", "10", "270", "3094", "64", "94", "28", "192", "3", "23", "120", "180 190360573", "1911 178", "43", "2324324445", "25", "17", "13", "1004", "101075762 101417282 101588258 101645282", "568 50", "471228 49113954961677"]
+
+task_markup = InlineKeyboardMarkup()
+buttons = []
+buttons.append(InlineKeyboardButton(text="Предыдущее", callback_data="prev_task"))
+buttons.append(InlineKeyboardButton(text="Следующее", callback_data="next_task"))
+task_markup.row(*buttons)
+task_markup.add(InlineKeyboardButton(text="К списку заданий", callback_data="btn_start_exam"))
+task_markup.add(InlineKeyboardButton(text="Очистить мой выбор", callback_data="clear_answer"))
+task_markup.add(InlineKeyboardButton(text="Завершить экзамен", callback_data="finish_exam_warning_message"))
 
 user_states = {}
 
 @bot.message_handler(commands=['start'])
 def send_main_menu_options(message):
     user_id = message.from_user.id
+
+    user_answers = []
+    for i in range(NUMBER_OF_TASKS):
+        user_answers.append(None)
+
     user_states[user_id] = {
         "stage": "Menu",
-        "current_task_number" : None
+        "current_task_number" : None,
+        "user_answers": user_answers,
+        "is_task_sent": False,
+        "task_image_message_id": None,
+        "task_answer_message_id": None,
+        "task_answer_message_text": None
     }
 
     markup = InlineKeyboardMarkup()
@@ -39,33 +60,168 @@ def send_task_buttons(call):
         if i % 8 == 0:
             markup.row(*buttons)
             buttons = []
-
     if buttons:
         markup.row(*buttons)
+    markup.add(InlineKeyboardButton(text="Завершить экзамен", callback_data="finish_exam_warning_message"))
 
-    bot.send_message(chat_id=user_id, reply_markup=markup, text = "Выберите задание:")
+    bot.send_message(chat_id=user_id, reply_markup=markup, text="Выберите задание:")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("task_"))
 def send_task(call):
     user_id = call.from_user.id
     bot.answer_callback_query(call.id)
+
     task_number = int(call.data.split("_")[1])
     user_states[user_id]["current_task_number"] = task_number
     user_states[user_id]["stage"] = "task"
     path_to_task_image = "tasks/" + str(task_number) + "/task" + str(task_number) + "_1.png"
     with open(path_to_task_image, "rb") as photo:
-        bot.send_photo(user_id, photo, caption="Выполните задание и отправьте ответ:")
+        image_message = bot.send_photo(user_id, photo, caption="Выполните задание и отправьте ответ на него")
+        user_states[user_id]["task_image_message_id"] = image_message.id
+
+    user_answer = user_states[user_id]["user_answers"][task_number - 1]
+    if user_answer is None:
+        message = "Вы не давали ответ на это задание"
+    else:
+        message = "Ваш ответ: " + user_answer
+
+    user_states[user_id]["task_answer_message_text"] = message
+    answer_message = bot.send_message(chat_id=user_id, reply_markup=task_markup, text=message)
+    user_states[user_id]["task_answer_message_id"] = answer_message.id
 
 @bot.message_handler(func=lambda message:
     user_states.get(message.from_user.id, {}).get("stage") == "task")
 def handle_task_input(message):
     user_id = message.from_user.id
-    text = message.text
     task_number = user_states.get(user_id).get("current_task_number")
+    text = message.text
 
-    if text == correct_answers[task_number - 1]:
-        bot.send_message(chat_id=user_id, text = "Ответ верный!")
+    bot.edit_message_text(
+        chat_id=user_id,
+        message_id=user_states[user_id]["task_answer_message_id"],
+        reply_markup=task_markup,
+        text="Ваш ответ: " + text
+    )
+
+    user_states[user_id]["task_answer_message_text"] = "Ваш ответ: " + text
+    user_states[user_id]["user_answers"][task_number - 1] = text
+
+@bot.callback_query_handler(func=lambda call: call.data == "clear_answer")
+def clear_task_answer(call):
+    bot.answer_callback_query(call.id)
+    user_id = call.from_user.id
+    task_number = user_states[user_id]["current_task_number"]
+
+    bot.edit_message_text(
+        chat_id=user_id,
+        message_id=user_states[user_id]["task_answer_message_id"],
+        reply_markup=task_markup,
+        text="Вы не давали ответ на это задание"
+    )
+
+    user_states[user_id]["task_answer_message_text"] = "Вы не давали ответ на это задание"
+    user_states[user_id]["user_answers"][task_number - 1] = None
+
+@bot.callback_query_handler(func=lambda call: call.data == "prev_task")
+def show_prev_task(call):
+    user_id = call.from_user.id
+    bot.answer_callback_query(call.id)
+
+    task_number = int(user_states.get(user_id).get("current_task_number"))
+    if task_number == 1:
+        task_number = NUMBER_OF_TASKS
     else:
-        bot.send_message(chat_id=user_id, text="Ответ неверный")
+        task_number -= 1
+
+    path_to_new_task_image = "tasks/" + str(task_number) + "/task" + str(task_number) + "_1.png"
+    with open(path_to_new_task_image, "rb") as photo:
+        bot.edit_message_media(
+            media=InputMediaPhoto(photo),
+            chat_id=user_id,
+            message_id=user_states[user_id]["task_image_message_id"]
+        )
+
+    user_answer = user_states[user_id]["user_answers"][task_number - 1]
+    if user_answer is None:
+        message = "Вы не давали ответ на это задание"
+    else:
+        message = "Ваш ответ: " + user_answer
+
+    if user_states[user_id]["task_answer_message_text"] != message:
+        bot.edit_message_text(
+            chat_id=user_id,
+            message_id=user_states[user_id]["task_answer_message_id"],
+            reply_markup=task_markup,
+            text=message
+        )
+
+    user_states[user_id]["task_answer_message_text"] = message
+    user_states[user_id]["current_task_number"] = task_number
+
+@bot.callback_query_handler(func=lambda call: call.data == "next_task")
+def show_next_task(call):
+    user_id = call.from_user.id
+    bot.answer_callback_query(call.id)
+
+    task_number = int(user_states.get(user_id).get("current_task_number"))
+    if task_number == NUMBER_OF_TASKS:
+        task_number = 1
+    else:
+        task_number += 1
+
+    path_to_new_task_image = "tasks/" + str(task_number) + "/task" + str(task_number) + "_1.png"
+    with open(path_to_new_task_image, "rb") as photo:
+        bot.edit_message_media(
+            media=InputMediaPhoto(photo),
+            chat_id=user_id,
+            message_id=user_states[user_id]["task_image_message_id"]
+        )
+
+    user_answer = user_states[user_id]["user_answers"][task_number - 1]
+    if user_answer is None:
+        message = "Вы не давали ответ на это задание"
+    else:
+        message = "Ваш ответ: " + user_answer
+
+    if user_states[user_id]["task_answer_message_text"] != message:
+        bot.edit_message_text(
+            chat_id=user_id,
+            message_id=user_states[user_id]["task_answer_message_id"],
+            reply_markup=task_markup,
+            text=message
+        )
+
+    user_states[user_id]["task_answer_message_text"] = message
+    user_states[user_id]["current_task_number"] = task_number
+
+@bot.callback_query_handler(func=lambda call: call.data ==  "finish_exam_warning_message")
+def send_finish_exam_warning_message(call):
+    user_id = call.from_user.id
+    bot.answer_callback_query(call.id)
+
+    markup = InlineKeyboardMarkup()
+    buttons = []
+    buttons.append(InlineKeyboardButton(text="Да", callback_data="exam_results"))
+    buttons.append(InlineKeyboardButton(text="Нет", callback_data="btn_start_exam"))
+    markup.row(*buttons)
+    bot.send_message(user_id, text="Вы уверены, что хотите завершить экзамен?", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data ==  "exam_results")
+def send_exam_results(call):
+    user_id = call.from_user.id
+    bot.answer_callback_query(call.id)
+
+    user_answers = user_states.get(user_id).get("user_answers")
+    primary_score = 0
+    for task in range(1, NUMBER_OF_TASKS + 1):
+        if user_answers[task - 1] == correct_answers[task - 1]:
+            if (task >= 1) and (task <= 25):
+                primary_score += 1
+            elif (task >= 26) and (task <= 27):
+                primary_score += 2
+
+    secondary_score = EXAM_SCORE_CONVERSION[primary_score]
+    message = "Ваш итоговый результат: " + str(secondary_score) + " баллов из 100"
+    bot.send_message(user_id, text=message)
 
 bot.polling()
