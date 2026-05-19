@@ -1,5 +1,6 @@
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto
+from PIL import Image, ImageDraw, ImageFont
 
 NUMBER_OF_TASKS = 27
 EXAM_SCORE_CONVERSION = [0, 7, 14, 20, 27, 34, 40, 43, 46, 48, 51, 54, 56, 59, 62, 64, 67, 70, 72, 75, 78, 80, 83, 85, 88, 90, 93, 95, 98, 100]
@@ -221,7 +222,30 @@ def send_exam_results(call):
                 primary_score += 2
 
     secondary_score = EXAM_SCORE_CONVERSION[primary_score]
+
+    img = Image.open("results_empty.png")
+    draw = ImageDraw.Draw(img)
+    font_14 = ImageFont.truetype("arial.ttf", 14)
+    for number in range(NUMBER_OF_TASKS):
+        rectangle_y1 = 45 * (number + 1)
+        rectangle_y2 = 45 * (number + 2)
+        user_answer = user_states[user_id]["user_answers"][number]
+        correct_answer = correct_answers[number]
+        if user_answer == correct_answer:
+            rectangle_color = "green"
+        else:
+            rectangle_color = "red"
+        draw.rectangle([(90, rectangle_y1), (90 * 5, rectangle_y2)], fill=rectangle_color, outline="black", width=3)
+
+        text_y = 45 * number + 45 + (45 // 2)
+        if user_answer is not None:
+            draw.text((270, text_y), str(user_answer), font=font_14, fill="black", anchor="mm")
+        draw.text((630, text_y), str(correct_answer), font=font_14, fill="black", anchor="mm")
+
+    img.save("results.png")
+
     message = "Ваш итоговый результат: " + str(secondary_score) + " баллов из 100"
-    bot.send_message(user_id, text=message)
+    with open("results.png", "rb") as photo:
+        bot.send_photo(user_id, photo, caption=message)
 
 bot.polling()
