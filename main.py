@@ -1,6 +1,7 @@
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto
 from PIL import Image, ImageDraw, ImageFont
+import os
 
 NUMBER_OF_TASKS = 27
 EXAM_SCORE_CONVERSION = [0, 7, 14, 20, 27, 34, 40, 43, 46, 48, 51, 54, 56, 59, 62, 64, 67, 70, 72, 75, 78, 80, 83, 85, 88, 90, 93, 95, 98, 100]
@@ -38,7 +39,8 @@ def send_main_menu_options(message):
         "is_task_sent": False,
         "task_image_message_id": None,
         "task_answer_message_id": None,
-        "task_answer_message_text": None
+        "task_answer_message_text": None,
+        "document_message_ids": []
     }
 
     markup = InlineKeyboardMarkup()
@@ -75,10 +77,19 @@ def send_task(call):
     task_number = int(call.data.split("_")[1])
     user_states[user_id]["current_task_number"] = task_number
     user_states[user_id]["stage"] = "task"
-    path_to_task_image = "tasks/" + str(task_number) + "/task" + str(task_number) + "_1.png"
+    path_to_task_files = "tasks/" + str(task_number)
+    path_to_task_image = path_to_task_files + "/task" + str(task_number) + "_1.png"
     with open(path_to_task_image, "rb") as photo:
         image_message = bot.send_photo(user_id, photo, caption="Выполните задание и отправьте ответ на него")
         user_states[user_id]["task_image_message_id"] = image_message.id
+
+    task_files = os.listdir(path_to_task_files)
+    for filename in task_files:
+        if not filename.endswith(".png"):
+            path_to_file = path_to_task_files + "/" + filename
+            with open(path_to_file, "rb") as file:
+                message = bot.send_document(user_id, file)
+                user_states[user_id]["document_message_ids"].append(message.id)
 
     user_answer = user_states[user_id]["user_answers"][task_number - 1]
     if user_answer is None:
@@ -128,6 +139,10 @@ def show_prev_task(call):
     user_id = call.from_user.id
     bot.answer_callback_query(call.id)
 
+    for message_id in user_states[user_id]["document_message_ids"]:
+        bot.delete_message(user_id, message_id)
+    user_states[user_id]["document_message_ids"] = []
+
     task_number = int(user_states.get(user_id).get("current_task_number"))
     if task_number == 1:
         task_number = NUMBER_OF_TASKS
@@ -141,6 +156,15 @@ def show_prev_task(call):
             chat_id=user_id,
             message_id=user_states[user_id]["task_image_message_id"]
         )
+
+    path_to_task_files = "tasks/" + str(task_number)
+    task_files = os.listdir(path_to_task_files)
+    for filename in task_files:
+        if not filename.endswith(".png"):
+            path_to_file = path_to_task_files + "/" + filename
+            with open(path_to_file, "rb") as file:
+                message = bot.send_document(user_id, file)
+                user_states[user_id]["document_message_ids"].append(message.id)
 
     user_answer = user_states[user_id]["user_answers"][task_number - 1]
     if user_answer is None:
@@ -164,6 +188,10 @@ def show_next_task(call):
     user_id = call.from_user.id
     bot.answer_callback_query(call.id)
 
+    for message_id in user_states[user_id]["document_message_ids"]:
+        bot.delete_message(user_id, message_id)
+    user_states[user_id]["document_message_ids"] = []
+
     task_number = int(user_states.get(user_id).get("current_task_number"))
     if task_number == NUMBER_OF_TASKS:
         task_number = 1
@@ -177,6 +205,15 @@ def show_next_task(call):
             chat_id=user_id,
             message_id=user_states[user_id]["task_image_message_id"]
         )
+
+    path_to_task_files = "tasks/" + str(task_number)
+    task_files = os.listdir(path_to_task_files)
+    for filename in task_files:
+        if not filename.endswith(".png"):
+            path_to_file = path_to_task_files + "/" + filename
+            with open(path_to_file, "rb") as file:
+                message = bot.send_document(user_id, file)
+                user_states[user_id]["document_message_ids"].append(message.id)
 
     user_answer = user_states[user_id]["user_answers"][task_number - 1]
     if user_answer is None:
