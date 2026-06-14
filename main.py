@@ -2,6 +2,7 @@ import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto
 from PIL import Image, ImageDraw, ImageFont
 import os
+import psycopg2
 
 NUMBER_OF_TASKS = 27
 EXAM_SCORE_CONVERSION = [0, 7, 14, 20, 27, 34, 40, 43, 46, 48, 51, 54, 56, 59, 62, 64, 67, 70, 72, 75, 78, 80, 83, 85, 88, 90, 93, 95, 98, 100]
@@ -24,9 +25,35 @@ task_markup.add(InlineKeyboardButton(text="Завершить экзамен", c
 
 user_states = {}
 
+#Подключение к БД
+conn = psycopg2.connect(
+    dbname="postgres",
+    user="postgres",
+    password="postgres",
+    host="localhost"
+)
+
+cursor = conn.cursor()
+
 @bot.message_handler(commands=['start'])
 def send_main_menu_options(message):
     user_id = message.from_user.id
+
+    #Добавление в sql таблицу записи о статистике пользователя, если ее еще нет
+    cursor.execute("""
+        INSERT INTO bot.user_stats (
+            user_id,
+            variants_completed,
+            tasks_completed,
+            correct_tasks,
+            uncorrect_tasks,
+            unanswered_tasks
+        )
+        VALUES (%s, 0, 0, 0, 0, 0)
+        ON CONFLICT(user_id) DO NOTHING
+    """, (user_id,))
+
+    conn.commit()
 
     user_answers = []
     for i in range(NUMBER_OF_TASKS):
@@ -249,6 +276,7 @@ def send_exam_results(call):
     user_id = call.from_user.id
     bot.answer_callback_query(call.id)
 
+    #Подсчет баллов
     user_answers = user_states.get(user_id).get("user_answers")
     primary_score = 0
     for task in range(1, NUMBER_OF_TASKS + 1):
@@ -259,6 +287,38 @@ def send_exam_results(call):
                 primary_score += 2
 
     secondary_score = EXAM_SCORE_CONVERSION[primary_score]
+
+    #Сборка статистики об этом прорешанном варианте
+    correct_tasks_count = 0
+    uncorrect_tasks_count = 0
+    uncompleted_tasks_count = 0
+
+    for task in range(1, NUMBER_OF_TASKS + 1):
+        if user_answers[task - 1] == correct_answers[task - 1]:
+            correct_tasks_count += 1
+        elif user_answers[task - 1] is None:
+            uncompleted_tasks_count += 1
+        else:
+            uncorrect_tasks_count += 1
+
+    cursor.execute("""
+        UPDATE bot.user_stats
+        SET
+            variants_completed = variants_completed + 1,
+            tasks_completed = tasks_completed + %s,
+            correct_tasks = correct_tasks + %s,
+            uncorrect_tasks = uncorrect_tasks + %s,
+            unanswered_tasks = unanswered_tasks + %s
+        WHERE user_id = %s
+    """, (
+        NUMBER_OF_TASKS,
+        correct_tasks_count,
+        uncorrect_tasks_count,
+        uncompleted_tasks_count,
+        user_id,
+    ))
+
+    conn.commit()
 
     img = Image.open("results_empty.png")
     draw = ImageDraw.Draw(img)
@@ -285,4 +345,33 @@ def send_exam_results(call):
     with open("results.png", "rb") as photo:
         bot.send_photo(user_id, photo, caption=message)
 
+@bot.callback_query_handler(func=lambda call: call.data == "btn_statistics")
+def send_statistics(call):
+    user_id = call.from_user.id
+    bot.answer_callback_query(call.id)
+
+    cursor.execute("""
+        SELECT
+            variants_completed,
+            tasks_completed,
+            correct_tasks,
+            uncorrect_tasks,
+            unanswered_tasks
+        FROM bot.user_stats
+        WHERE user_id = %s
+    """, (user_id,))
+
+    row = cursor.fetchone()
+
+    text = (
+        f"Ваша статистика:\n"
+        f"Выполнено вариантов: {row[0]}\n"
+        f"Выполнено задач: {row[1]}\n"
+        f"Правильно выполненных задач: {row[2]}\n"
+        f"Неправильно выполненных задач: {row[3]}\n"
+        f"Задач, на которые не дан ответ: {row[4]}\n")
+
+    bot.send_message(user_id, text=text)
+
 bot.polling()
+conn.close()
