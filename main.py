@@ -320,24 +320,57 @@ def send_exam_results(call):
 
     conn.commit()
 
+    #Заполнение таблицы ответами, покрас ячеек
     img = Image.open("results_empty.png")
     draw = ImageDraw.Draw(img)
-    font_14 = ImageFont.truetype("arial.ttf", 14)
-    for number in range(NUMBER_OF_TASKS):
-        rectangle_y1 = 45 * (number + 1)
-        rectangle_y2 = 45 * (number + 2)
-        user_answer = user_states[user_id]["user_answers"][number]
-        correct_answer = correct_answers[number]
-        if user_answer == correct_answer:
-            rectangle_color = "green"
-        else:
-            rectangle_color = "red"
-        draw.rectangle([(90, rectangle_y1), (90 * 5, rectangle_y2)], fill=rectangle_color, outline="black", width=3)
+    font_text = ImageFont.truetype("arial.ttf", 14)
+    border_color = "#2D3436"
+    correct_color = "#D4EDDA"
+    wrong_color = "#F8D7DA"
+    neutral_color = "#FFFFFF"
 
-        text_y = 45 * number + 45 + (45 // 2)
+    for number in range(NUMBER_OF_TASKS):
+
+        y1 = 45 * (number + 1)
+        y2 = 45 * (number + 2)
+
+        user_answer = user_answers[number]
+        correct_answer = correct_answers[number]
+
+        if user_answer == correct_answer:
+            color = correct_color
+        elif user_answer is None:
+            color = neutral_color
+        else:
+            color = wrong_color
+
+        draw.rounded_rectangle(
+        [(95, y1 + 5),
+            (90 * 5 - 5, y2 - 5)],
+            radius=8,
+            fill=color,
+            outline=border_color,
+            width=1
+        )
+
+        text_y = (y1 + 45 // 2)
+
         if user_answer is not None:
-            draw.text((270, text_y), str(user_answer), font=font_14, fill="black", anchor="mm")
-        draw.text((630, text_y), str(correct_answer), font=font_14, fill="black", anchor="mm")
+            draw.text(
+                (270, text_y),
+                str(user_answer),
+                font=font_text,
+                fill="#2D3436",
+                anchor="mm"
+            )
+
+        draw.text(
+            (630, text_y),
+            str(correct_answer),
+            font=font_text,
+            fill="#2D3436",
+            anchor="mm"
+        )
 
     img.save("results.png")
 
