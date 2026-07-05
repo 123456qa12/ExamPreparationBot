@@ -5,6 +5,7 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, InputMedia
 from PIL import Image, ImageDraw, ImageFont
 import os
 import psycopg2
+import json
 
 NUMBER_OF_TASKS = 27
 EXAM_SCORE_CONVERSION = [0, 7, 14, 20, 27, 34, 40, 43, 46, 48, 51, 54, 56, 59, 62, 64, 67, 70, 72, 75, 78, 80, 83, 85, 88, 90, 93, 95, 98, 100]
@@ -323,9 +324,17 @@ def send_exam_results(call):
 
     img.save("results.png")
 
+    # Статистика пользователя относительно других экзаменуемых
+    with open("statistics.json") as file:
+        statistics = json.load(file)
+        percent = str(statistics.get(str(secondary_score)))
+
     message = "Ваш итоговый результат: " + str(secondary_score) + " баллов из 100"
     with open("results.png", "rb") as photo:
         bot.send_photo(user_id, photo, caption=message)
+    message = "Вы сдали этот экзамен лучше, чем " + percent + "% экзаменуемых в 2025 году."
+    bot.send_message(user_id, message)
+
 
 @bot.callback_query_handler(func=lambda call: call.data == "btn_statistics")
 def send_statistics(call):
